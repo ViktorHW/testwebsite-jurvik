@@ -87,6 +87,15 @@
             text-align: center;
             font-size: 14px;
         }
+        #debug {
+            position: absolute;
+            top: 60px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            font-size: 14px;
+            color: #666;
+        }
         button {
             padding: 10px 20px;
             font-size: 16px;
@@ -112,6 +121,7 @@
 <body>
     <div id="gameContainer">
         <div id="scoreBoard">0 : 0</div>
+        <div id="debug"></div>
         <div id="leftPaddle" class="paddle"></div>
         <div id="rightPaddle" class="paddle"></div>
         <div id="ball" class="ball"></div>
@@ -150,7 +160,8 @@
             isHost: false,
             peerId: null,
             connection: null,
-            playerName: ''
+            playerName: '',
+            lastUpdate: Date.now()
         };
 
         // DOM elements
@@ -167,6 +178,7 @@
         const playerNameInput = document.getElementById('playerName');
         const gameIdInput = document.getElementById('gameId');
         const gameIdDisplay = document.getElementById('gameIdDisplay');
+        const debugElement = document.getElementById('debug');
 
         // Key states
         const keys = {
@@ -196,12 +208,22 @@
                 if (e.key in keys) {
                     keys[e.key] = true;
                     e.preventDefault();
+
+                    // Send paddle position immediately to reduce latency
+                    if (gameState.connection && gameState.connection.open) {
+                        sendPaddlePosition();
+                    }
                 }
             });
 
             document.addEventListener('keyup', (e) => {
                 if (e.key in keys) {
                     keys[e.key] = false;
+                    
+                    // Send paddle position immediately to reduce latency
+                    if (gameState.connection && gameState.connection.open) {
+                        sendPaddlePosition();
+                    }
                 }
             });
         };
@@ -231,6 +253,7 @@
                 conn.on('open', () => {
                     waitingScreen.style.display = 'none';
                     gameState.gameRunning = true;
+                    resetBall(1);
                     startGame();
                     
                     // Send initial state
@@ -298,11 +321,17 @@
 
         // Handle incoming data
         function handleData(data) {
-            if (data.type === 'gameState') {
+            if (data.type === 'paddlePosition') {
                 if (gameState.isHost) {
+                    // Host receives client's right paddle position
                     gameState.rightPaddle.y = data.paddleY;
                 } else {
+                    // Client receives host's left paddle position
                     gameState.leftPaddle.y = data.paddleY;
+                }
+            } else if (data.type === 'ballUpdate') {
+                if (!gameState.isHost) {
+                    // Only client receives ball updates from host
                     gameState.ball = data.ball;
                     gameState.leftPaddle.score = data.leftScore;
                     gameState.rightPaddle.score = data.rightScore;
@@ -328,7 +357,13 @@
             
             if (gameState.isHost) {
                 updateBall();
-                sendGameState();
+                
+                // Send ball updates at a controlled rate to prevent network flooding
+                const now = Date.now();
+                if (now - gameState.lastUpdate > 16) { // ~60fps
+                    sendBallUpdate();
+                    gameState.lastUpdate = now;
+                }
             }
             
             renderGame();
@@ -337,22 +372,50 @@
 
         // Update paddle positions based on key presses
         function updatePaddles() {
+            const paddleSpeed = 8;
+            
             if (gameState.isHost) {
                 // Host controls left paddle
                 if (keys.w && gameState.leftPaddle.y > 0) {
-                    gameState.leftPaddle.y -= 8;
+                    gameState.leftPaddle.y -= paddleSpeed;
+                    sendPaddlePosition();
                 }
                 if (keys.s && gameState.leftPaddle.y < gameState.gameHeight - gameState.paddleHeight) {
-                    gameState.leftPaddle.y += 8;
+                    gameState.leftPaddle.y += paddleSpeed;
+                    sendPaddlePosition();
                 }
             } else {
                 // Client controls right paddle
                 if (keys.ArrowUp && gameState.rightPaddle.y > 0) {
-                    gameState.rightPaddle.y -= 8;
+                    gameState.rightPaddle.y -= paddleSpeed;
+                    sendPaddlePosition();
                 }
                 if (keys.ArrowDown && gameState.rightPaddle.y < gameState.gameHeight - gameState.paddleHeight) {
-                    gameState.rightPaddle.y += 8;
+                    gameState.rightPaddle.y += paddleSpeed;
+                    sendPaddlePosition();
                 }
+            }
+        }
+
+        // Send paddle position to peer
+        function sendPaddlePosition() {
+            if (gameState.connection && gameState.connection.open) {
+                gameState.connection.send({
+                    type: 'paddlePosition',
+                    paddleY: gameState.isHost ? gameState.leftPaddle.y : gameState.rightPaddle.y
+                });
+            }
+        }
+
+        // Send ball update to peer
+        function sendBallUpdate() {
+            if (gameState.connection && gameState.connection.open) {
+                gameState.connection.send({
+                    type: 'ballUpdate',
+                    ball: gameState.ball,
+                    leftScore: gameState.leftPaddle.score,
+                    rightScore: gameState.rightPaddle.score
+                });
             }
         }
 
@@ -409,19 +472,6 @@
         // Update score display
         function updateScore() {
             scoreBoard.textContent = `${gameState.leftPaddle.score} : ${gameState.rightPaddle.score}`;
-        }
-
-        // Send game state to peer
-        function sendGameState() {
-            if (gameState.connection && gameState.connection.open) {
-                gameState.connection.send({
-                    type: 'gameState',
-                    paddleY: gameState.isHost ? gameState.leftPaddle.y : gameState.rightPaddle.y,
-                    ball: gameState.ball,
-                    leftScore: gameState.leftPaddle.score,
-                    rightScore: gameState.rightPaddle.score
-                });
-            }
         }
 
         // Render game elements
