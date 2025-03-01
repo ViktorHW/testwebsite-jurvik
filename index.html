@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Local Multiplayer Tic-Tac-Toe</title>
+    <title>WebSocket Multiplayer Tic-Tac-Toe</title>
     <style>
         body {
             font-family: 'Arial', sans-serif;
@@ -29,6 +29,8 @@
             padding: 20px;
             border-radius: 10px;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            max-width: 500px;
+            width: 90%;
         }
         
         .status {
@@ -36,19 +38,21 @@
             font-size: 18px;
             font-weight: bold;
             color: #333;
+            text-align: center;
         }
         
         .board {
             display: grid;
-            grid-template-columns: repeat(3, 100px);
-            grid-template-rows: repeat(3, 100px);
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
             gap: 5px;
             margin-bottom: 20px;
+            width: 300px;
+            height: 300px;
+            max-width: 90%;
         }
         
         .cell {
-            width: 100px;
-            height: 100px;
             background-color: #e0e0e0;
             display: flex;
             align-items: center;
@@ -56,6 +60,7 @@
             font-size: 40px;
             cursor: pointer;
             transition: background-color 0.3s;
+            aspect-ratio: 1;
         }
         
         .cell:hover {
@@ -84,59 +89,95 @@
             font-size: 16px;
             cursor: pointer;
             transition: background-color 0.3s;
+            width: 100%;
+            max-width: 300px;
         }
         
         button:hover {
             background-color: #45a049;
         }
         
-        .player-info {
-            margin: 10px 0;
-            font-size: 16px;
-            display: flex;
-            justify-content: space-between;
-            width: 310px;
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
         }
         
-        .player {
+        .game-id {
+            margin: 10px 0;
             padding: 10px;
+            background-color: #f0f0f0;
             border-radius: 5px;
-            transition: background-color 0.3s;
-        }
-        
-        .current-turn {
-            background-color: #e0e0e0;
-            font-weight: bold;
-        }
-        
-        .score-board {
-            margin: 10px 0;
+            font-family: monospace;
             font-size: 16px;
-            display: flex;
-            justify-content: space-between;
-            width: 310px;
+            text-align: center;
+            width: 100%;
+            max-width: 300px;
+            word-break: break-all;
         }
         
-        .score {
+        .game-controls {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 300px;
+        }
+        
+        input {
+            padding: 10px;
+            margin: 5px 0;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 16px;
+            width: 100%;
+            max-width: 300px;
+        }
+        
+        .connection-status {
+            margin: 10px 0;
             padding: 5px 10px;
             border-radius: 5px;
-            background-color: #f0f0f0;
+            font-size: 14px;
+            text-align: center;
+        }
+        
+        .connected {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+        
+        .connecting {
+            background-color: #fff8e1;
+            color: #ff8f00;
+        }
+        
+        .disconnected {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .info-text {
+            margin: 10px 0;
+            font-size: 14px;
+            color: #666;
+            text-align: center;
         }
     </style>
 </head>
 <body>
-    <h1>Local Multiplayer Tic-Tac-Toe</h1>
+    <h1>WebSocket Multiplayer Tic-Tac-Toe</h1>
+    
+    <div class="connection-status" id="connectionStatus">
+        Not connected to server
+    </div>
+    
     <div class="game-container">
-        <div class="player-info">
-            <div id="playerX" class="player X">Player X</div>
-            <div id="playerO" class="player O">Player O</div>
-        </div>
-        <div class="score-board">
-            <div class="score">X: <span id="scoreX">0</span></div>
-            <div class="score">Draws: <span id="draws">0</span></div>
-            <div class="score">O: <span id="scoreO">0</span></div>
-        </div>
-        <div id="gameStatus" class="status">Player X's turn</div>
+        <div id="gameStatus" class="status">Connect to start playing</div>
+        
         <div class="board" id="board">
             <div class="cell" data-index="0"></div>
             <div class="cell" data-index="1"></div>
@@ -148,161 +189,363 @@
             <div class="cell" data-index="7"></div>
             <div class="cell" data-index="8"></div>
         </div>
-        <button id="resetButton">Reset Game</button>
+        
+        <div class="game-controls" id="createGameControls">
+            <button id="createGameBtn">Create New Game</button>
+            <div class="game-id hidden" id="gameIdDisplay"></div>
+            <p class="info-text hidden" id="shareInfo">Share this Game ID with your opponent</p>
+        </div>
+        
+        <div class="game-controls" id="joinGameControls">
+            <input type="text" id="gameIdInput" placeholder="Enter Game ID to join">
+            <button id="joinGameBtn">Join Game</button>
+        </div>
+        
+        <button id="resetGameBtn" class="hidden">Play Again</button>
     </div>
-
+    
     <script>
-        // Game state
-        let board = ['', '', '', '', '', '', '', '', ''];
-        let currentPlayer = 'X';
-        let gameActive = true;
-        let scores = {
-            X: 0,
-            O: 0,
-            draws: 0
-        };
-
-        // DOM elements
+        // Game elements
+        const board = document.getElementById('board');
         const cells = document.querySelectorAll('.cell');
         const gameStatus = document.getElementById('gameStatus');
-        const resetButton = document.getElementById('resetButton');
-        const playerX = document.getElementById('playerX');
-        const playerO = document.getElementById('playerO');
-        const scoreX = document.getElementById('scoreX');
-        const scoreO = document.getElementById('scoreO');
-        const draws = document.getElementById('draws');
-
-        // Winning combinations
-        const winningCombinations = [
-            [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
-            [0, 3, 6], [1, 4, 7], [2, 5, 8], // columns
-            [0, 4, 8], [2, 4, 6]             // diagonals
-        ];
-
-        // Initial setup
-        function initGame() {
-            cells.forEach(cell => cell.addEventListener('click', cellClick));
-            resetButton.addEventListener('click', resetGame);
-            updatePlayerTurn();
-            loadScores();
+        const connectionStatus = document.getElementById('connectionStatus');
+        const createGameBtn = document.getElementById('createGameBtn');
+        const joinGameBtn = document.getElementById('joinGameBtn');
+        const resetGameBtn = document.getElementById('resetGameBtn');
+        const gameIdInput = document.getElementById('gameIdInput');
+        const gameIdDisplay = document.getElementById('gameIdDisplay');
+        const shareInfo = document.getElementById('shareInfo');
+        
+        // Game state
+        let socket;
+        let gameId = null;
+        let playerSymbol = null;
+        let currentTurn = null;
+        let board_state = ['', '', '', '', '', '', '', '', ''];
+        let gameActive = false;
+        
+        // Connect to WebSocket server
+        function connectToServer() {
+            updateConnectionStatus('connecting');
+            
+            // Use a free WebSocket echo server for demonstration
+            // In a real application, you would use your own server
+            socket = new WebSocket('wss://echo.websocket.events');
+            
+            socket.onopen = function() {
+                updateConnectionStatus('connected');
+                enableGameButtons();
+            };
+            
+            socket.onclose = function() {
+                updateConnectionStatus('disconnected');
+                disableGameButtons();
+            };
+            
+            socket.onerror = function() {
+                updateConnectionStatus('disconnected');
+                disableGameButtons();
+                gameStatus.textContent = 'Connection error. Please try again.';
+            };
+            
+            socket.onmessage = function(event) {
+                handleMessage(event.data);
+            };
         }
-
+        
+        // Update connection status display
+        function updateConnectionStatus(status) {
+            connectionStatus.className = 'connection-status ' + status;
+            
+            if (status === 'connected') {
+                connectionStatus.textContent = 'Connected to server';
+            } else if (status === 'connecting') {
+                connectionStatus.textContent = 'Connecting to server...';
+            } else {
+                connectionStatus.textContent = 'Disconnected from server';
+            }
+        }
+        
+        // Enable game buttons
+        function enableGameButtons() {
+            createGameBtn.disabled = false;
+            joinGameBtn.disabled = false;
+        }
+        
+        // Disable game buttons
+        function disableGameButtons() {
+            createGameBtn.disabled = true;
+            joinGameBtn.disabled = true;
+        }
+        
+        // Generate random game ID
+        function generateGameId() {
+            return Math.random().toString(36).substring(2, 8);
+        }
+        
+        // Create a new game
+        function createGame() {
+            gameId = generateGameId();
+            playerSymbol = 'X';
+            currentTurn = 'X'; // X always starts
+            
+            // Show game ID to share
+            gameIdDisplay.textContent = gameId;
+            gameIdDisplay.classList.remove('hidden');
+            shareInfo.classList.remove('hidden');
+            
+            // Update game status
+            gameStatus.textContent = 'Waiting for opponent to join...';
+            
+            // Send game creation message
+            sendMessage({
+                type: 'create_game',
+                gameId: gameId
+            });
+        }
+        
+        // Join an existing game
+        function joinGame() {
+            const gameIdToJoin = gameIdInput.value.trim();
+            
+            if (!gameIdToJoin) {
+                gameStatus.textContent = 'Please enter a valid Game ID';
+                return;
+            }
+            
+            gameId = gameIdToJoin;
+            playerSymbol = 'O';
+            currentTurn = 'X'; // X always starts
+            
+            // Update game status
+            gameStatus.textContent = 'Joining game...';
+            
+            // Send join game message
+            sendMessage({
+                type: 'join_game',
+                gameId: gameId
+            });
+            
+            // Hide join controls after joining
+            document.getElementById('joinGameControls').classList.add('hidden');
+            
+            // Start the game
+            startGame();
+        }
+        
+        // Start the game
+        function startGame() {
+            gameActive = true;
+            
+            // Update game status
+            if (playerSymbol === currentTurn) {
+                gameStatus.textContent = 'Your turn (' + playerSymbol + ')';
+            } else {
+                gameStatus.textContent = "Opponent's turn";
+            }
+            
+            // Hide create/join controls
+            document.getElementById('createGameControls').classList.add('hidden');
+            document.getElementById('joinGameControls').classList.add('hidden');
+        }
+        
         // Handle cell click
-        function cellClick(event) {
+        function handleCellClick(event) {
+            if (!gameActive) return;
+            if (currentTurn !== playerSymbol) {
+                gameStatus.textContent = "It's not your turn";
+                return;
+            }
+            
             const cellIndex = parseInt(event.target.getAttribute('data-index'));
             
-            // Check if cell is already filled or game is not active
-            if (board[cellIndex] !== '' || !gameActive) {
-                return;
-            }
+            if (board_state[cellIndex] !== '') return;
             
-            // Update cell with current player's symbol
-            board[cellIndex] = currentPlayer;
-            event.target.textContent = currentPlayer;
-            event.target.classList.add(currentPlayer);
+            // Update local board
+            board_state[cellIndex] = playerSymbol;
+            updateBoardDisplay();
+            
+            // Send move to opponent
+            sendMessage({
+                type: 'make_move',
+                gameId: gameId,
+                cellIndex: cellIndex,
+                symbol: playerSymbol
+            });
             
             // Check for win or draw
-            if (checkWin()) {
-                gameActive = false;
-                gameStatus.textContent = `Player ${currentPlayer} wins!`;
-                scores[currentPlayer]++;
-                updateScoreDisplay();
-                saveScores();
-                return;
-            }
+            const gameResult = checkGameResult();
             
-            if (checkDraw()) {
+            if (gameResult.status === 'win') {
+                gameActive = false;
+                gameStatus.textContent = 'You win!';
+                highlightWinningCells(gameResult.combo);
+                resetGameBtn.classList.remove('hidden');
+            } else if (gameResult.status === 'draw') {
                 gameActive = false;
                 gameStatus.textContent = 'Game ended in a draw!';
-                scores.draws++;
-                updateScoreDisplay();
-                saveScores();
-                return;
+                resetGameBtn.classList.remove('hidden');
+            } else {
+                // Switch turn
+                currentTurn = currentTurn === 'X' ? 'O' : 'X';
+                gameStatus.textContent = "Opponent's turn";
             }
-            
-            // Switch player
-            currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
-            updatePlayerTurn();
         }
-
-        // Check for win
-        function checkWin() {
+        
+        // Handle incoming messages
+        function handleMessage(data) {
+            try {
+                const message = JSON.parse(data);
+                
+                switch (message.type) {
+                    case 'create_game':
+                        // Game created successfully
+                        break;
+                        
+                    case 'join_game':
+                        // Opponent joined the game
+                        if (message.gameId === gameId && playerSymbol === 'X') {
+                            gameStatus.textContent = 'Opponent joined! Your turn (X)';
+                            startGame();
+                        }
+                        break;
+                        
+                    case 'make_move':
+                        // Opponent made a move
+                        if (message.gameId === gameId && message.symbol !== playerSymbol) {
+                            board_state[message.cellIndex] = message.symbol;
+                            updateBoardDisplay();
+                            
+                            // Check for win or draw
+                            const gameResult = checkGameResult();
+                            
+                            if (gameResult.status === 'win') {
+                                gameActive = false;
+                                gameStatus.textContent = 'You lost!';
+                                highlightWinningCells(gameResult.combo);
+                                resetGameBtn.classList.remove('hidden');
+                            } else if (gameResult.status === 'draw') {
+                                gameActive = false;
+                                gameStatus.textContent = 'Game ended in a draw!';
+                                resetGameBtn.classList.remove('hidden');
+                            } else {
+                                // Switch turn
+                                currentTurn = currentTurn === 'X' ? 'O' : 'X';
+                                if (currentTurn === playerSymbol) {
+                                    gameStatus.textContent = 'Your turn (' + playerSymbol + ')';
+                                }
+                            }
+                        }
+                        break;
+                        
+                    case 'reset_game':
+                        // Reset the game
+                        if (message.gameId === gameId) {
+                            resetGame();
+                        }
+                        break;
+                }
+            } catch (error) {
+                console.error('Failed to parse message:', error);
+            }
+        }
+        
+        // Send message to the server
+        function sendMessage(message) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify(message));
+            }
+        }
+        
+        // Update the board display
+        function updateBoardDisplay() {
+            for (let i = 0; i < cells.length; i++) {
+                cells[i].textContent = board_state[i];
+                cells[i].className = 'cell';
+                
+                if (board_state[i] === 'X') {
+                    cells[i].classList.add('X');
+                } else if (board_state[i] === 'O') {
+                    cells[i].classList.add('O');
+                }
+            }
+        }
+        
+        // Check for win or draw
+        function checkGameResult() {
+            const winningCombinations = [
+                [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
+                [0, 3, 6], [1, 4, 7], [2, 5, 8], // columns
+                [0, 4, 8], [2, 4, 6]             // diagonals
+            ];
+            
+            // Check for win
             for (let i = 0; i < winningCombinations.length; i++) {
                 const [a, b, c] = winningCombinations[i];
                 if (
-                    board[a] !== '' &&
-                    board[a] === board[b] &&
-                    board[a] === board[c]
+                    board_state[a] &&
+                    board_state[a] === board_state[b] &&
+                    board_state[a] === board_state[c]
                 ) {
-                    highlightWinningCells(winningCombinations[i]);
-                    return true;
+                    return {
+                        status: 'win',
+                        combo: winningCombinations[i]
+                    };
                 }
             }
-            return false;
+            
+            // Check for draw
+            if (!board_state.includes('')) {
+                return {
+                    status: 'draw'
+                };
+            }
+            
+            // Game still in progress
+            return {
+                status: 'playing'
+            };
         }
-
-        // Check for draw
-        function checkDraw() {
-            return !board.includes('');
-        }
-
+        
         // Highlight winning cells
         function highlightWinningCells(combination) {
-            combination.forEach(index => {
-                cells[index].classList.add('win');
-            });
-        }
-
-        // Update player turn indicator
-        function updatePlayerTurn() {
-            gameStatus.textContent = `Player ${currentPlayer}'s turn`;
-            
-            if (currentPlayer === 'X') {
-                playerX.classList.add('current-turn');
-                playerO.classList.remove('current-turn');
-            } else {
-                playerO.classList.add('current-turn');
-                playerX.classList.remove('current-turn');
+            for (let i = 0; i < combination.length; i++) {
+                cells[combination[i]].classList.add('win');
             }
         }
-
+        
         // Reset the game
         function resetGame() {
-            board = ['', '', '', '', '', '', '', '', ''];
+            board_state = ['', '', '', '', '', '', '', '', ''];
+            updateBoardDisplay();
+            
+            currentTurn = 'X';
             gameActive = true;
-            currentPlayer = 'X';
             
-            cells.forEach(cell => {
-                cell.textContent = '';
-                cell.classList.remove('X', 'O', 'win');
-            });
-            
-            updatePlayerTurn();
-        }
-
-        // Update score display
-        function updateScoreDisplay() {
-            scoreX.textContent = scores.X;
-            scoreO.textContent = scores.O;
-            draws.textContent = scores.draws;
-        }
-
-        // Save scores to local storage
-        function saveScores() {
-            localStorage.setItem('ticTacToeScores', JSON.stringify(scores));
-        }
-
-        // Load scores from local storage
-        function loadScores() {
-            const savedScores = localStorage.getItem('ticTacToeScores');
-            if (savedScores) {
-                scores = JSON.parse(savedScores);
-                updateScoreDisplay();
+            if (playerSymbol === 'X') {
+                gameStatus.textContent = 'Your turn (X)';
+            } else {
+                gameStatus.textContent = "Opponent's turn";
             }
+            
+            resetGameBtn.classList.add('hidden');
+            
+            // Send reset game message
+            sendMessage({
+                type: 'reset_game',
+                gameId: gameId
+            });
         }
-
-        // Initialize the game
-        initGame();
+        
+        // Event listeners
+        createGameBtn.addEventListener('click', createGame);
+        joinGameBtn.addEventListener('click', joinGame);
+        resetGameBtn.addEventListener('click', resetGame);
+        cells.forEach(cell => cell.addEventListener('click', handleCellClick));
+        
+        // Initialize connection
+        connectToServer();
     </script>
 </body>
 </html>
