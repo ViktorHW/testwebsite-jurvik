@@ -3,335 +3,478 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2D Game Units</title>
+    <title>Multiplayer Tic-Tac-Toe</title>
     <style>
         body {
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
             margin: 0;
-            overflow: hidden;
-            background-color: #333333; /* Dark gray background */
+            background-color: #f5f5f5;
         }
-        canvas {
-            display: block;
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
         }
-        .controls {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background-color: rgba(255, 255, 255, 0.7);
-            padding: 10px;
-            border-radius: 5px;
+        
+        .game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
-        button {
-            margin: 5px;
-            padding: 5px 10px;
+        
+        .status {
+            margin: 15px 0;
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .board {
+            display: grid;
+            grid-template-columns: repeat(3, 100px);
+            grid-template-rows: repeat(3, 100px);
+            gap: 5px;
+            margin-bottom: 20px;
+        }
+        
+        .cell {
+            width: 100px;
+            height: 100px;
+            background-color: #e0e0e0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
             cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        .cell:hover {
+            background-color: #d0d0d0;
+        }
+        
+        .game-controls {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+        }
+        
+        button {
+            padding: 10px 20px;
+            margin: 5px 0;
+            border: none;
+            border-radius: 5px;
+            background-color: #4CAF50;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        .game-id {
+            margin: 10px 0;
+            font-size: 16px;
+        }
+        
+        .join-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 10px 0;
+        }
+        
+        input {
+            padding: 10px;
+            margin: 5px 0;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 16px;
+            width: 200px;
+        }
+        
+        .players-info {
+            margin: 10px 0;
+            font-size: 16px;
+        }
+        
+        .player-x {
+            color: #E91E63;
+        }
+        
+        .player-o {
+            color: #2196F3;
+        }
+        
+        .win-combo {
+            background-color: #FFEB3B;
         }
     </style>
 </head>
 <body>
-    <canvas id="gameCanvas"></canvas>
-    <div class="controls">
-        <button id="addUnit">Add Unit</button>
-        <button id="clearUnits">Clear Units</button>
+    <h1>Multiplayer Tic-Tac-Toe</h1>
+    <div class="game-container">
+        <div id="playerInfo" class="players-info">
+            Waiting for players...
+        </div>
+        <div id="gameStatus" class="status">Game not started</div>
+        <div class="board" id="board">
+            <div class="cell" data-index="0"></div>
+            <div class="cell" data-index="1"></div>
+            <div class="cell" data-index="2"></div>
+            <div class="cell" data-index="3"></div>
+            <div class="cell" data-index="4"></div>
+            <div class="cell" data-index="5"></div>
+            <div class="cell" data-index="6"></div>
+            <div class="cell" data-index="7"></div>
+            <div class="cell" data-index="8"></div>
+        </div>
+        <div class="game-controls">
+            <button id="createGame">Create New Game</button>
+            <div class="game-id" id="gameIdDisplay"></div>
+            <div class="join-container">
+                <input type="text" id="gameIdInput" placeholder="Enter Game ID to join">
+                <button id="joinGame">Join Game</button>
+            </div>
+            <button id="resetGame" style="display: none;">Reset Game</button>
+        </div>
     </div>
 
+    <!-- Firebase App (the core Firebase SDK) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/8.10.1/firebase-app.min.js"></script>
+    <!-- Firebase database -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/8.10.1/firebase-database.min.js"></script>
+    
     <script>
-        // Global variables
-        const MAX_SPEED = 10000;
-        const SPEED_PERSENTAGE = 0.75;
-        
-        // Initialize canvas
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        
-        // Set canvas to full window size
-        function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        }
-        
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
-        
-        // Unit class to store unit properties
-        class Unit {
-            constructor(x, y, radius) {
-                this.x = x;
-                this.y = y;
-                this.radius = radius;
-                this.color = '#668B8B'; // Dark cyan color
-                
-                // Calculate mass based on the circle's area (πr²)
-                this.mass = Math.PI * this.radius * this.radius;
-                
-                // Calculate speed as inverse of mass using MAX_SPEED
-                this.speed = MAX_SPEED / this.mass;
-                
-                // Random direction
-                this.d = Math.random(-Math.PI, Math.PI)
-                this.dx = (Math.cos(this.d)) * this.speed * SPEED_PERSENTAGE;
-                this.dy = (Math.sin(this.d)) * this.speed * SPEED_PERSENTAGE;
-                
-                // Add a unique ID to each unit for reference
-                this.id = '_' + Math.random().toString(36).substr(2, 9);
-                
-                // List to store collision vectors
-                this.tick_collisions = [];
-            }
-            
-            // Draw the unit on the canvas
-            draw() {
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-                ctx.fillStyle = this.color;
-                ctx.fill();
-                ctx.closePath();
-            }
-            
-            // Resolve collisions based on stored collision vectors
-            resolveCollisions() {
-                let x = this.dx;
-                let y = this.dy;
-                
-                // Apply all collision vectors
-                for (const pos of this.tick_collisions) {
-                    x += pos[0];
-                    y += pos[1];
-                }
-                
-                // Clear the collisions list
-                this.tick_collisions = [];
-                
-                // Limit the maximum distance moved to the unit's speed
-                const dist = Math.sqrt(x * x + y * y);
-                if (dist > this.speed) {
-                    const dire = Math.atan2(y, x);
-                    x -= (dist - this.speed) * Math.cos(dire);
-                    y -= (dist - this.speed) * Math.sin(dire);
-                }
-                
-                // Update position based on the calculated vector
-                this.x += x - this.dx;
-                this.y += y - this.dy;
-            }
+        // Initialize Firebase with your config
+        // For demo purposes - replace with your Firebase config when deploying
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_AUTH_DOMAIN",
+            databaseURL: "YOUR_DATABASE_URL",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_STORAGE_BUCKET",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
 
-            wallCollisions() {
-                if (this.x + this.radius > canvas.width || this.x - this.radius < 0) {
-                    this.dx = -this.dx;
-                    if (this.x + this.radius > canvas.width) {
-                        this.x = canvas.width - this.radius;
-                    } else if (this.x - this.radius < 0) {
-                        this.x = this.radius;
-                    }
-                }
-                
-                if (this.y + this.radius > canvas.height || this.y - this.radius < 0) {
-                    this.dy = -this.dy;
-                    if (this.y + this.radius > canvas.height) {
-                        this.y = canvas.height - this.radius;
-                    } else if (this.y - this.radius < 0) {
-                        this.y = this.radius;
-                    }
-                }
-            }
-            
-            // Update the unit's position
-            update() {
-                // Update position first (as requested)
-                this.x += this.dx;
-                this.y += this.dy;
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
 
-                // Resolve any collisions
-                this.resolveCollisions();
-                this.wallCollisions();
-                
-                // Draw the updated unit
-                this.draw();
-            }
+        // Game state
+        let currentGameId = null;
+        let playerId = null;
+        let playerSymbol = null;
+        let currentTurn = null;
+        let gameRef = null;
+
+        // DOM elements
+        const board = document.getElementById('board');
+        const cells = document.querySelectorAll('.cell');
+        const gameStatus = document.getElementById('gameStatus');
+        const playerInfo = document.getElementById('playerInfo');
+        const createGameBtn = document.getElementById('createGame');
+        const joinGameBtn = document.getElementById('joinGame');
+        const resetGameBtn = document.getElementById('resetGame');
+        const gameIdInput = document.getElementById('gameIdInput');
+        const gameIdDisplay = document.getElementById('gameIdDisplay');
+
+        // Event listeners
+        createGameBtn.addEventListener('click', createGame);
+        joinGameBtn.addEventListener('click', joinGame);
+        resetGameBtn.addEventListener('click', resetGame);
+        cells.forEach(cell => cell.addEventListener('click', handleCellClick));
+
+        // Generate a random ID
+        function generateId() {
+            return Math.random().toString(36).substring(2, 8);
         }
-        
-        // Game class to manage units and game loop
-        class Game {
-            constructor() {
-                this.units = [];
-                this.isRunning = true;
-                this.distance_timers = {}; // Dictionary to track distances between units
-                this.tick_number = 0; // Initialize tick number
-            }
+
+        // Create a new game
+        function createGame() {
+            const gameId = generateId();
+            playerId = generateId();
+            playerSymbol = 'X';
+            currentGameId = gameId;
             
-            // Add a new unit with random position and size
-            addUnit() {
-                const radius = 10 + Math.random() * 100;
-                const x = radius + Math.random() * (canvas.width - radius * 2);
-                const y = radius + Math.random() * (canvas.height - radius * 2);
-                
-                const newUnit = new Unit(x, y, radius);
-                this.units.push(newUnit);
-                
-                // Update distance_timers with all possible connections to existing units
-                this.updateDistanceTimers();
-            }
+            gameRef = database.ref(`games/${gameId}`);
             
-            // Clear all units
-            clearUnits() {
-                this.units = [];
-                this.distance_timers = {};
-            }
+            const initialGameState = {
+                board: Array(9).fill(''),
+                players: {
+                    [playerId]: {
+                        symbol: 'X',
+                        active: true
+                    }
+                },
+                status: 'waiting',
+                currentTurn: playerId
+            };
             
-            // Calculate distance between two units
-            calculateDistance(unit1, unit2) {
-                const dx = unit1.x - unit2.x;
-                const dy = unit1.y - unit2.y;
-                return Math.sqrt(dx * dx + dy * dy);
-            }
-            
-            // Handle the collision logic for a pair of units
-            handleCollisionPair(unit1, unit2, pairKey) {
-                const distance = this.calculateDistance(unit1, unit2);
-                const combinedRadii = unit1.radius + unit2.radius;
-                
-                // Check if collision is happening (or about to happen)
-                if (distance - combinedRadii < 0) {
-                    // Units are colliding
-                    // Calculate collision vectors as requested
-                    const total_mass = unit1.mass + unit2.mass;
-                    const dx = unit1.x - unit2.x;
-                    const dy = unit1.y - unit2.y;
-                    const overlap = combinedRadii - distance;
+            gameRef.set(initialGameState)
+                .then(() => {
+                    gameIdDisplay.textContent = `Game ID: ${gameId}`;
+                    gameStatus.textContent = 'Waiting for opponent to join...';
+                    playerInfo.textContent = 'You are Player X';
                     
-                    // Add collision vectors to each unit
-                    unit1.tick_collisions.push([
-                        ((overlap * (unit2.mass / total_mass) )* (dx / distance)),
-                        ((overlap * (unit2.mass / total_mass)) * (dy / distance))
-                    ]);
+                    // Listen for game state changes
+                    setupGameListeners();
+                })
+                .catch(error => {
+                    console.error('Error creating game:', error);
+                    gameStatus.textContent = 'Error creating game';
+                });
+        }
+
+        // Join an existing game
+        function joinGame() {
+            const gameId = gameIdInput.value.trim();
+            
+            if (!gameId) {
+                gameStatus.textContent = 'Please enter a valid Game ID';
+                return;
+            }
+            
+            playerId = generateId();
+            currentGameId = gameId;
+            
+            gameRef = database.ref(`games/${gameId}`);
+            
+            gameRef.once('value')
+                .then(snapshot => {
+                    const gameData = snapshot.val();
                     
-                    unit2.tick_collisions.push([
-                        -((overlap * (unit1.mass / total_mass)) * (dx / distance)),
-                        -((overlap * (unit1.mass / total_mass)) * (dy / distance))
-                    ]);
-                    
-                    // Add to next tick with tick_number + 1
-                    const nextTickKey = this.tick_number + 1;
-                    if (!this.distance_timers[nextTickKey]) {
-                        this.distance_timers[nextTickKey] = [];
+                    if (!gameData) {
+                        gameStatus.textContent = 'Game not found';
+                        return;
                     }
                     
-                    this.distance_timers[nextTickKey].push({
-                        pairKey: pairKey,
-                        units: [unit1, unit2]
-                    });
+                    if (gameData.status !== 'waiting') {
+                        gameStatus.textContent = 'Game already in progress or ended';
+                        return;
+                    }
+                    
+                    playerSymbol = 'O';
+                    
+                    const updates = {};
+                    updates[`players/${playerId}`] = {
+                        symbol: 'O',
+                        active: true
+                    };
+                    updates['status'] = 'playing';
+                    
+                    return gameRef.update(updates);
+                })
+                .then(() => {
+                    if (playerSymbol) {
+                        gameIdDisplay.textContent = `Game ID: ${gameId}`;
+                        gameStatus.textContent = 'Game in progress';
+                        playerInfo.textContent = 'You are Player O';
+                        
+                        // Listen for game state changes
+                        setupGameListeners();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error joining game:', error);
+                    gameStatus.textContent = 'Error joining game';
+                });
+        }
+
+        // Handle cell click
+        function handleCellClick(event) {
+            if (!currentGameId || !playerId) {
+                gameStatus.textContent = 'Please create or join a game first';
+                return;
+            }
+            
+            const cellIndex = event.target.dataset.index;
+            
+            gameRef.once('value')
+                .then(snapshot => {
+                    const gameData = snapshot.val();
+                    
+                    if (gameData.status !== 'playing') {
+                        return;
+                    }
+                    
+                    if (gameData.currentTurn !== playerId) {
+                        gameStatus.textContent = "It's not your turn";
+                        return;
+                    }
+                    
+                    if (gameData.board[cellIndex] !== '') {
+                        gameStatus.textContent = 'Cell already taken';
+                        return;
+                    }
+                    
+                    // Update the board
+                    const updatedBoard = [...gameData.board];
+                    updatedBoard[cellIndex] = playerSymbol;
+                    
+                    // Check for win or draw
+                    const result = checkGameResult(updatedBoard);
+                    
+                    const updates = {};
+                    updates['board'] = updatedBoard;
+                    
+                    // Find the opponent
+                    const opponentId = Object.keys(gameData.players).find(id => id !== playerId);
+                    
+                    if (result.win) {
+                        updates['status'] = 'ended';
+                        updates['winner'] = playerId;
+                        updates['winningCombo'] = result.combo;
+                    } else if (result.draw) {
+                        updates['status'] = 'ended';
+                        updates['winner'] = 'draw';
+                    } else {
+                        updates['currentTurn'] = opponentId;
+                    }
+                    
+                    return gameRef.update(updates);
+                })
+                .catch(error => {
+                    console.error('Error updating game:', error);
+                });
+        }
+
+        // Check for win or draw
+        function checkGameResult(board) {
+            const winPatterns = [
+                [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
+                [0, 3, 6], [1, 4, 7], [2, 5, 8], // columns
+                [0, 4, 8], [2, 4, 6]             // diagonals
+            ];
+            
+            // Check for win
+            for (const pattern of winPatterns) {
+                const [a, b, c] = pattern;
+                if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+                    return { win: true, combo: pattern };
+                }
+            }
+            
+            // Check for draw
+            const isDraw = board.every(cell => cell !== '');
+            
+            return { win: false, draw: isDraw };
+        }
+
+        // Reset the game
+        function resetGame() {
+            if (!currentGameId || !gameRef) return;
+            
+            const initialBoard = Array(9).fill('');
+            
+            gameRef.once('value')
+                .then(snapshot => {
+                    const gameData = snapshot.val();
+                    
+                    if (!gameData) return;
+                    
+                    const firstPlayerId = Object.keys(gameData.players)[0];
+                    
+                    const updates = {
+                        board: initialBoard,
+                        status: 'playing',
+                        currentTurn: firstPlayerId,
+                        winner: null,
+                        winningCombo: null
+                    };
+                    
+                    return gameRef.update(updates);
+                })
+                .catch(error => {
+                    console.error('Error resetting game:', error);
+                });
+        }
+
+        // Setup game listeners
+        function setupGameListeners() {
+            if (!gameRef) return;
+            
+            gameRef.on('value', snapshot => {
+                const gameData = snapshot.val();
+                
+                if (!gameData) return;
+                
+                // Update the board
+                updateBoard(gameData.board);
+                
+                // Update game status
+                updateGameStatus(gameData);
+                
+                // Show/hide reset button
+                resetGameBtn.style.display = gameData.status === 'ended' ? 'block' : 'none';
+                
+                // Highlight winning cells
+                if (gameData.winningCombo) {
+                    highlightWinningCells(gameData.winningCombo);
+                }
+            });
+        }
+
+        // Update the board on the screen
+        function updateBoard(boardData) {
+            cells.forEach((cell, index) => {
+                cell.textContent = boardData[index];
+                cell.classList.remove('win-combo');
+            });
+        }
+
+        // Update game status text
+        function updateGameStatus(gameData) {
+            // Update players info
+            if (gameData.players) {
+                const playerCount = Object.keys(gameData.players).length;
+                if (playerCount < 2) {
+                    playerInfo.textContent = `You are Player ${playerSymbol} - Waiting for opponent`;
                 } else {
-                    // Units are not colliding
-                    // Add to future tick based on current distance
-                    const futureTickKey = Math.max(Math.floor((distance - combinedRadii) / (unit1.speed + unit2.speed)), 1) + this.tick_number;
-                    if (!this.distance_timers[futureTickKey]) {
-                        this.distance_timers[futureTickKey] = [];
-                    }
-                    
-                    this.distance_timers[futureTickKey].push({
-                        pairKey: pairKey,
-                        units: [unit1, unit2]
-                    });
+                    playerInfo.textContent = `You are Player ${playerSymbol}`;
                 }
             }
             
-            // Update the distance_timers dictionary
-            updateDistanceTimers() {
-                // Create connections between all units (except with themselves)
-                for (let i = 0; i < this.units.length; i++) {
-                    for (let j = 0; j < this.units.length; j++) {
-                        if (i !== j) { // Avoid connecting a unit to itself
-                            const unit1 = this.units[i];
-                            const unit2 = this.units[j];
-                            const pairKey = `${unit1.id}_${unit2.id}`;
-                            
-                            // Use the collision handling logic
-                            this.handleCollisionPair(unit1, unit2, pairKey);
-                        }
-                    }
+            // Update game status
+            if (gameData.status === 'waiting') {
+                gameStatus.textContent = 'Waiting for opponent to join...';
+            } else if (gameData.status === 'playing') {
+                if (gameData.currentTurn === playerId) {
+                    gameStatus.textContent = 'Your turn';
+                } else {
+                    gameStatus.textContent = "Opponent's turn";
                 }
-                
-                // Log the current state of distance_timers (for debugging)
-                console.log("Tick:", this.tick_number, "Distance timers updated:", 
-                    Object.keys(this.distance_timers).length, "different tick keys");
-            }
-            
-            // Process the current tick
-            processTick() {
-                // Get the pairs for the current tick
-                const currentTickPairs = this.distance_timers[this.tick_number] || [];
-                
-                // Process each pair
-                for (const pair of currentTickPairs) {
-                    const unit1 = pair.units[0];
-                    const unit2 = pair.units[1];
-                    const pairKey = pair.pairKey;
-                    
-                    // Check if the units still exist (they might have been removed)
-                    if (this.units.includes(unit1) && this.units.includes(unit2)) {
-                        // Handle collision for this pair
-                        this.handleCollisionPair(unit1, unit2, pairKey);
-                    }
+            } else if (gameData.status === 'ended') {
+                if (gameData.winner === 'draw') {
+                    gameStatus.textContent = 'Game ended in a draw';
+                } else if (gameData.winner === playerId) {
+                    gameStatus.textContent = 'You won!';
+                } else {
+                    gameStatus.textContent = 'You lost!';
                 }
-                
-                // Clean up the current tick
-                delete this.distance_timers[this.tick_number];
-                
-                // Increment the tick number
-                this.tick_number++;
-            }
-            
-            // Game loop
-            loop() {
-                if (!this.isRunning) return;
-                
-                // Clear canvas with dark gray background
-                ctx.fillStyle = '#333333';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                
-                // Update and draw all units
-                for (let i = 0; i < this.units.length; i++) {
-                    this.units[i].update();
-                }
-                
-                // Process the current tick
-                this.processTick();
-                
-                // Continue loop
-                requestAnimationFrame(() => this.loop());
-            }
-            
-            // Start the game
-            start() {
-                this.isRunning = true;
-                // Initialize the distance_timers for the first time
-                this.updateDistanceTimers();
-                this.loop();
-            }
-            
-            // Stop the game
-            stop() {
-                this.isRunning = false;
             }
         }
-        
-        // Create and start the game
-        const game = new Game();
-        game.start();
-        
-        // Add event listeners for buttons
-        document.getElementById('addUnit').addEventListener('click', () => {
-            game.addUnit();
-        });
-        
-        document.getElementById('clearUnits').addEventListener('click', () => {
-            game.clearUnits();
-        });
-        
-        // Allow clicking on canvas to add units
-        canvas.addEventListener('click', (event) => {
-            game.addUnit();
-        });
+
+        // Highlight winning cells
+        function highlightWinningCells(winningCombo) {
+            winningCombo.forEach(index => {
+                cells[index].classList.add('win-combo');
+            });
+        }
     </script>
 </body>
 </html>
