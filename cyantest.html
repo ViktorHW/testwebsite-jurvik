@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Game Units</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #333333; /* Dark gray background */
+        }
+        canvas {
+            display: block;
+        }
+        .controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(255, 255, 255, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        button {
+            margin: 5px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div class="controls">
+        <button id="addUnit">Add Unit</button>
+        <button id="clearUnits">Clear Units</button>
+    </div>
+
+    <script>
+        // Global variables
+        const MAX_SPEED = 10000;
+        const SPEED_PERSENTAGE = 0.75;
+        
+        // Initialize canvas
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Set canvas to full window size
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        
+        // Unit class to store unit properties
+        class Unit {
+            constructor(x, y, radius) {
+                this.x = x;
+                this.y = y;
+                this.radius = radius;
+                this.color = '#668B8B'; // Dark cyan color
+                
+                // Calculate mass based on the circle's area (πr²)
+                this.mass = Math.PI * this.radius * this.radius;
+                
+                // Calculate speed as inverse of mass using MAX_SPEED
+                this.speed = MAX_SPEED / this.mass;
+                
+                // Random direction
+                this.d = Math.random(-Math.PI, Math.PI)
+                this.dx = (Math.cos(this.d)) * this.speed * SPEED_PERSENTAGE;
+                this.dy = (Math.sin(this.d)) * this.speed * SPEED_PERSENTAGE;
+                
+                // Add a unique ID to each unit for reference
+                this.id = '_' + Math.random().toString(36).substr(2, 9);
+                
+                // List to store collision vectors
+                this.tick_collisions = [];
+            }
+            
+            // Draw the unit on the canvas
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.closePath();
+            }
+            
+            // Resolve collisions based on stored collision vectors
+            resolveCollisions() {
+                let x = this.dx;
+                let y = this.dy;
+                
+                // Apply all collision vectors
+                for (const pos of this.tick_collisions) {
+                    x += pos[0];
+                    y += pos[1];
+                }
+                
+                // Clear the collisions list
+                this.tick_collisions = [];
+                
+                // Limit the maximum distance moved to the unit's speed
+                const dist = Math.sqrt(x * x + y * y);
+                if (dist > this.speed) {
+                    const dire = Math.atan2(y, x);
+                    x -= (dist - this.speed) * Math.cos(dire);
+                    y -= (dist - this.speed) * Math.sin(dire);
+                }
+                
+                // Update position based on the calculated vector
+                this.x += x - this.dx;
+                this.y += y - this.dy;
+            }
+
+            wallCollisions() {
+                if (this.x + this.radius > canvas.width || this.x - this.radius < 0) {
+                    this.dx = -this.dx;
+                    if (this.x + this.radius > canvas.width) {
+                        this.x = canvas.width - this.radius;
+                    } else if (this.x - this.radius < 0) {
+                        this.x = this.radius;
+                    }
+                }
+                
+                if (this.y + this.radius > canvas.height || this.y - this.radius < 0) {
+                    this.dy = -this.dy;
+                    if (this.y + this.radius > canvas.height) {
+                        this.y = canvas.height - this.radius;
+                    } else if (this.y - this.radius < 0) {
+                        this.y = this.radius;
+                    }
+                }
+            }
+            
+            // Update the unit's position
+            update() {
+                // Update position first (as requested)
+                this.x += this.dx;
+                this.y += this.dy;
+
+                // Resolve any collisions
+                this.resolveCollisions();
+                this.wallCollisions();
+                
+                // Draw the updated unit
+                this.draw();
+            }
+        }
+        
+        // Game class to manage units and game loop
+        class Game {
+            constructor() {
+                this.units = [];
+                this.isRunning = true;
+                this.distance_timers = {}; // Dictionary to track distances between units
+                this.tick_number = 0; // Initialize tick number
+            }
+            
+            // Add a new unit with random position and size
+            addUnit() {
+                const radius = 10 + Math.random() * 100;
+                const x = radius + Math.random() * (canvas.width - radius * 2);
+                const y = radius + Math.random() * (canvas.height - radius * 2);
+                
+                const newUnit = new Unit(x, y, radius);
+                this.units.push(newUnit);
+                
+                // Update distance_timers with all possible connections to existing units
+                this.updateDistanceTimers();
+            }
+            
+            // Clear all units
+            clearUnits() {
+                this.units = [];
+                this.distance_timers = {};
+            }
+            
+            // Calculate distance between two units
+            calculateDistance(unit1, unit2) {
+                const dx = unit1.x - unit2.x;
+                const dy = unit1.y - unit2.y;
+                return Math.sqrt(dx * dx + dy * dy);
+            }
+            
+            // Handle the collision logic for a pair of units
+            handleCollisionPair(unit1, unit2, pairKey) {
+                const distance = this.calculateDistance(unit1, unit2);
+                const combinedRadii = unit1.radius + unit2.radius;
+                
+                // Check if collision is happening (or about to happen)
+                if (distance - combinedRadii < 0) {
+                    // Units are colliding
+                    // Calculate collision vectors as requested
+                    const total_mass = unit1.mass + unit2.mass;
+                    const dx = unit1.x - unit2.x;
+                    const dy = unit1.y - unit2.y;
+                    const overlap = combinedRadii - distance;
+                    
+                    // Add collision vectors to each unit
+                    unit1.tick_collisions.push([
+                        ((overlap * (unit2.mass / total_mass) )* (dx / distance)),
+                        ((overlap * (unit2.mass / total_mass)) * (dy / distance))
+                    ]);
+                    
+                    unit2.tick_collisions.push([
+                        -((overlap * (unit1.mass / total_mass)) * (dx / distance)),
+                        -((overlap * (unit1.mass / total_mass)) * (dy / distance))
+                    ]);
+                    
+                    // Add to next tick with tick_number + 1
+                    const nextTickKey = this.tick_number + 1;
+                    if (!this.distance_timers[nextTickKey]) {
+                        this.distance_timers[nextTickKey] = [];
+                    }
+                    
+                    this.distance_timers[nextTickKey].push({
+                        pairKey: pairKey,
+                        units: [unit1, unit2]
+                    });
+                } else {
+                    // Units are not colliding
+                    // Add to future tick based on current distance
+                    const futureTickKey = Math.max(Math.floor((distance - combinedRadii) / (unit1.speed + unit2.speed)), 1) + this.tick_number;
+                    if (!this.distance_timers[futureTickKey]) {
+                        this.distance_timers[futureTickKey] = [];
+                    }
+                    
+                    this.distance_timers[futureTickKey].push({
+                        pairKey: pairKey,
+                        units: [unit1, unit2]
+                    });
+                }
+            }
+            
+            // Update the distance_timers dictionary
+            updateDistanceTimers() {
+                // Create connections between all units (except with themselves)
+                for (let i = 0; i < this.units.length; i++) {
+                    for (let j = 0; j < this.units.length; j++) {
+                        if (i !== j) { // Avoid connecting a unit to itself
+                            const unit1 = this.units[i];
+                            const unit2 = this.units[j];
+                            const pairKey = `${unit1.id}_${unit2.id}`;
+                            
+                            // Use the collision handling logic
+                            this.handleCollisionPair(unit1, unit2, pairKey);
+                        }
+                    }
+                }
+                
+                // Log the current state of distance_timers (for debugging)
+                console.log("Tick:", this.tick_number, "Distance timers updated:", 
+                    Object.keys(this.distance_timers).length, "different tick keys");
+            }
+            
+            // Process the current tick
+            processTick() {
+                // Get the pairs for the current tick
+                const currentTickPairs = this.distance_timers[this.tick_number] || [];
+                
+                // Process each pair
+                for (const pair of currentTickPairs) {
+                    const unit1 = pair.units[0];
+                    const unit2 = pair.units[1];
+                    const pairKey = pair.pairKey;
+                    
+                    // Check if the units still exist (they might have been removed)
+                    if (this.units.includes(unit1) && this.units.includes(unit2)) {
+                        // Handle collision for this pair
+                        this.handleCollisionPair(unit1, unit2, pairKey);
+                    }
+                }
+                
+                // Clean up the current tick
+                delete this.distance_timers[this.tick_number];
+                
+                // Increment the tick number
+                this.tick_number++;
+            }
+            
+            // Game loop
+            loop() {
+                if (!this.isRunning) return;
+                
+                // Clear canvas with dark gray background
+                ctx.fillStyle = '#333333';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Update and draw all units
+                for (let i = 0; i < this.units.length; i++) {
+                    this.units[i].update();
+                }
+                
+                // Process the current tick
+                this.processTick();
+                
+                // Continue loop
+                requestAnimationFrame(() => this.loop());
+            }
+            
+            // Start the game
+            start() {
+                this.isRunning = true;
+                // Initialize the distance_timers for the first time
+                this.updateDistanceTimers();
+                this.loop();
+            }
+            
+            // Stop the game
+            stop() {
+                this.isRunning = false;
+            }
+        }
+        
+        // Create and start the game
+        const game = new Game();
+        game.start();
+        
+        // Add event listeners for buttons
+        document.getElementById('addUnit').addEventListener('click', () => {
+            game.addUnit();
+        });
+        
+        document.getElementById('clearUnits').addEventListener('click', () => {
+            game.clearUnits();
+        });
+        
+        // Allow clicking on canvas to add units
+        canvas.addEventListener('click', (event) => {
+            game.addUnit();
+        });
+    </script>
+</body>
+</html>
