@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multiplayer Tic-Tac-Toe</title>
+    <title>Local Multiplayer Tic-Tac-Toe</title>
     <style>
         body {
             font-family: 'Arial', sans-serif;
@@ -62,11 +62,16 @@
             background-color: #d0d0d0;
         }
         
-        .game-controls {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            width: 100%;
+        .X {
+            color: #E91E63;
+        }
+        
+        .O {
+            color: #2196F3;
+        }
+        
+        .win {
+            background-color: #FFEB3B;
         }
         
         button {
@@ -85,52 +90,53 @@
             background-color: #45a049;
         }
         
-        .game-id {
+        .player-info {
             margin: 10px 0;
             font-size: 16px;
-        }
-        
-        .join-container {
             display: flex;
-            flex-direction: column;
-            align-items: center;
-            margin: 10px 0;
+            justify-content: space-between;
+            width: 310px;
         }
         
-        input {
+        .player {
             padding: 10px;
-            margin: 5px 0;
-            border: 1px solid #ccc;
             border-radius: 5px;
-            font-size: 16px;
-            width: 200px;
+            transition: background-color 0.3s;
         }
         
-        .players-info {
+        .current-turn {
+            background-color: #e0e0e0;
+            font-weight: bold;
+        }
+        
+        .score-board {
             margin: 10px 0;
             font-size: 16px;
+            display: flex;
+            justify-content: space-between;
+            width: 310px;
         }
         
-        .player-x {
-            color: #E91E63;
-        }
-        
-        .player-o {
-            color: #2196F3;
-        }
-        
-        .win-combo {
-            background-color: #FFEB3B;
+        .score {
+            padding: 5px 10px;
+            border-radius: 5px;
+            background-color: #f0f0f0;
         }
     </style>
 </head>
 <body>
-    <h1>Multiplayer Tic-Tac-Toe</h1>
+    <h1>Local Multiplayer Tic-Tac-Toe</h1>
     <div class="game-container">
-        <div id="playerInfo" class="players-info">
-            Waiting for players...
+        <div class="player-info">
+            <div id="playerX" class="player X">Player X</div>
+            <div id="playerO" class="player O">Player O</div>
         </div>
-        <div id="gameStatus" class="status">Game not started</div>
+        <div class="score-board">
+            <div class="score">X: <span id="scoreX">0</span></div>
+            <div class="score">Draws: <span id="draws">0</span></div>
+            <div class="score">O: <span id="scoreO">0</span></div>
+        </div>
+        <div id="gameStatus" class="status">Player X's turn</div>
         <div class="board" id="board">
             <div class="cell" data-index="0"></div>
             <div class="cell" data-index="1"></div>
@@ -142,339 +148,161 @@
             <div class="cell" data-index="7"></div>
             <div class="cell" data-index="8"></div>
         </div>
-        <div class="game-controls">
-            <button id="createGame">Create New Game</button>
-            <div class="game-id" id="gameIdDisplay"></div>
-            <div class="join-container">
-                <input type="text" id="gameIdInput" placeholder="Enter Game ID to join">
-                <button id="joinGame">Join Game</button>
-            </div>
-            <button id="resetGame" style="display: none;">Reset Game</button>
-        </div>
+        <button id="resetButton">Reset Game</button>
     </div>
 
-    <!-- Firebase App (the core Firebase SDK) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/8.10.1/firebase-app.min.js"></script>
-    <!-- Firebase database -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/8.10.1/firebase-database.min.js"></script>
-    
     <script>
-        // Initialize Firebase with your config
-        // For demo purposes - replace with your Firebase config when deploying
-        const firebaseConfig = {
-            apiKey: "YOUR_API_KEY",
-            authDomain: "YOUR_AUTH_DOMAIN",
-            databaseURL: "YOUR_DATABASE_URL",
-            projectId: "YOUR_PROJECT_ID",
-            storageBucket: "YOUR_STORAGE_BUCKET",
-            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-            appId: "YOUR_APP_ID"
+        // Game state
+        let board = ['', '', '', '', '', '', '', '', ''];
+        let currentPlayer = 'X';
+        let gameActive = true;
+        let scores = {
+            X: 0,
+            O: 0,
+            draws: 0
         };
 
-        // Initialize Firebase
-        firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
-
-        // Game state
-        let currentGameId = null;
-        let playerId = null;
-        let playerSymbol = null;
-        let currentTurn = null;
-        let gameRef = null;
-
         // DOM elements
-        const board = document.getElementById('board');
         const cells = document.querySelectorAll('.cell');
         const gameStatus = document.getElementById('gameStatus');
-        const playerInfo = document.getElementById('playerInfo');
-        const createGameBtn = document.getElementById('createGame');
-        const joinGameBtn = document.getElementById('joinGame');
-        const resetGameBtn = document.getElementById('resetGame');
-        const gameIdInput = document.getElementById('gameIdInput');
-        const gameIdDisplay = document.getElementById('gameIdDisplay');
+        const resetButton = document.getElementById('resetButton');
+        const playerX = document.getElementById('playerX');
+        const playerO = document.getElementById('playerO');
+        const scoreX = document.getElementById('scoreX');
+        const scoreO = document.getElementById('scoreO');
+        const draws = document.getElementById('draws');
 
-        // Event listeners
-        createGameBtn.addEventListener('click', createGame);
-        joinGameBtn.addEventListener('click', joinGame);
-        resetGameBtn.addEventListener('click', resetGame);
-        cells.forEach(cell => cell.addEventListener('click', handleCellClick));
+        // Winning combinations
+        const winningCombinations = [
+            [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
+            [0, 3, 6], [1, 4, 7], [2, 5, 8], // columns
+            [0, 4, 8], [2, 4, 6]             // diagonals
+        ];
 
-        // Generate a random ID
-        function generateId() {
-            return Math.random().toString(36).substring(2, 8);
-        }
-
-        // Create a new game
-        function createGame() {
-            const gameId = generateId();
-            playerId = generateId();
-            playerSymbol = 'X';
-            currentGameId = gameId;
-            
-            gameRef = database.ref(`games/${gameId}`);
-            
-            const initialGameState = {
-                board: Array(9).fill(''),
-                players: {
-                    [playerId]: {
-                        symbol: 'X',
-                        active: true
-                    }
-                },
-                status: 'waiting',
-                currentTurn: playerId
-            };
-            
-            gameRef.set(initialGameState)
-                .then(() => {
-                    gameIdDisplay.textContent = `Game ID: ${gameId}`;
-                    gameStatus.textContent = 'Waiting for opponent to join...';
-                    playerInfo.textContent = 'You are Player X';
-                    
-                    // Listen for game state changes
-                    setupGameListeners();
-                })
-                .catch(error => {
-                    console.error('Error creating game:', error);
-                    gameStatus.textContent = 'Error creating game';
-                });
-        }
-
-        // Join an existing game
-        function joinGame() {
-            const gameId = gameIdInput.value.trim();
-            
-            if (!gameId) {
-                gameStatus.textContent = 'Please enter a valid Game ID';
-                return;
-            }
-            
-            playerId = generateId();
-            currentGameId = gameId;
-            
-            gameRef = database.ref(`games/${gameId}`);
-            
-            gameRef.once('value')
-                .then(snapshot => {
-                    const gameData = snapshot.val();
-                    
-                    if (!gameData) {
-                        gameStatus.textContent = 'Game not found';
-                        return;
-                    }
-                    
-                    if (gameData.status !== 'waiting') {
-                        gameStatus.textContent = 'Game already in progress or ended';
-                        return;
-                    }
-                    
-                    playerSymbol = 'O';
-                    
-                    const updates = {};
-                    updates[`players/${playerId}`] = {
-                        symbol: 'O',
-                        active: true
-                    };
-                    updates['status'] = 'playing';
-                    
-                    return gameRef.update(updates);
-                })
-                .then(() => {
-                    if (playerSymbol) {
-                        gameIdDisplay.textContent = `Game ID: ${gameId}`;
-                        gameStatus.textContent = 'Game in progress';
-                        playerInfo.textContent = 'You are Player O';
-                        
-                        // Listen for game state changes
-                        setupGameListeners();
-                    }
-                })
-                .catch(error => {
-                    console.error('Error joining game:', error);
-                    gameStatus.textContent = 'Error joining game';
-                });
+        // Initial setup
+        function initGame() {
+            cells.forEach(cell => cell.addEventListener('click', cellClick));
+            resetButton.addEventListener('click', resetGame);
+            updatePlayerTurn();
+            loadScores();
         }
 
         // Handle cell click
-        function handleCellClick(event) {
-            if (!currentGameId || !playerId) {
-                gameStatus.textContent = 'Please create or join a game first';
+        function cellClick(event) {
+            const cellIndex = parseInt(event.target.getAttribute('data-index'));
+            
+            // Check if cell is already filled or game is not active
+            if (board[cellIndex] !== '' || !gameActive) {
                 return;
             }
             
-            const cellIndex = event.target.dataset.index;
+            // Update cell with current player's symbol
+            board[cellIndex] = currentPlayer;
+            event.target.textContent = currentPlayer;
+            event.target.classList.add(currentPlayer);
             
-            gameRef.once('value')
-                .then(snapshot => {
-                    const gameData = snapshot.val();
-                    
-                    if (gameData.status !== 'playing') {
-                        return;
-                    }
-                    
-                    if (gameData.currentTurn !== playerId) {
-                        gameStatus.textContent = "It's not your turn";
-                        return;
-                    }
-                    
-                    if (gameData.board[cellIndex] !== '') {
-                        gameStatus.textContent = 'Cell already taken';
-                        return;
-                    }
-                    
-                    // Update the board
-                    const updatedBoard = [...gameData.board];
-                    updatedBoard[cellIndex] = playerSymbol;
-                    
-                    // Check for win or draw
-                    const result = checkGameResult(updatedBoard);
-                    
-                    const updates = {};
-                    updates['board'] = updatedBoard;
-                    
-                    // Find the opponent
-                    const opponentId = Object.keys(gameData.players).find(id => id !== playerId);
-                    
-                    if (result.win) {
-                        updates['status'] = 'ended';
-                        updates['winner'] = playerId;
-                        updates['winningCombo'] = result.combo;
-                    } else if (result.draw) {
-                        updates['status'] = 'ended';
-                        updates['winner'] = 'draw';
-                    } else {
-                        updates['currentTurn'] = opponentId;
-                    }
-                    
-                    return gameRef.update(updates);
-                })
-                .catch(error => {
-                    console.error('Error updating game:', error);
-                });
-        }
-
-        // Check for win or draw
-        function checkGameResult(board) {
-            const winPatterns = [
-                [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
-                [0, 3, 6], [1, 4, 7], [2, 5, 8], // columns
-                [0, 4, 8], [2, 4, 6]             // diagonals
-            ];
-            
-            // Check for win
-            for (const pattern of winPatterns) {
-                const [a, b, c] = pattern;
-                if (board[a] && board[a] === board[b] && board[a] === board[c]) {
-                    return { win: true, combo: pattern };
-                }
+            // Check for win or draw
+            if (checkWin()) {
+                gameActive = false;
+                gameStatus.textContent = `Player ${currentPlayer} wins!`;
+                scores[currentPlayer]++;
+                updateScoreDisplay();
+                saveScores();
+                return;
             }
             
-            // Check for draw
-            const isDraw = board.every(cell => cell !== '');
+            if (checkDraw()) {
+                gameActive = false;
+                gameStatus.textContent = 'Game ended in a draw!';
+                scores.draws++;
+                updateScoreDisplay();
+                saveScores();
+                return;
+            }
             
-            return { win: false, draw: isDraw };
+            // Switch player
+            currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+            updatePlayerTurn();
+        }
+
+        // Check for win
+        function checkWin() {
+            for (let i = 0; i < winningCombinations.length; i++) {
+                const [a, b, c] = winningCombinations[i];
+                if (
+                    board[a] !== '' &&
+                    board[a] === board[b] &&
+                    board[a] === board[c]
+                ) {
+                    highlightWinningCells(winningCombinations[i]);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Check for draw
+        function checkDraw() {
+            return !board.includes('');
+        }
+
+        // Highlight winning cells
+        function highlightWinningCells(combination) {
+            combination.forEach(index => {
+                cells[index].classList.add('win');
+            });
+        }
+
+        // Update player turn indicator
+        function updatePlayerTurn() {
+            gameStatus.textContent = `Player ${currentPlayer}'s turn`;
+            
+            if (currentPlayer === 'X') {
+                playerX.classList.add('current-turn');
+                playerO.classList.remove('current-turn');
+            } else {
+                playerO.classList.add('current-turn');
+                playerX.classList.remove('current-turn');
+            }
         }
 
         // Reset the game
         function resetGame() {
-            if (!currentGameId || !gameRef) return;
+            board = ['', '', '', '', '', '', '', '', ''];
+            gameActive = true;
+            currentPlayer = 'X';
             
-            const initialBoard = Array(9).fill('');
-            
-            gameRef.once('value')
-                .then(snapshot => {
-                    const gameData = snapshot.val();
-                    
-                    if (!gameData) return;
-                    
-                    const firstPlayerId = Object.keys(gameData.players)[0];
-                    
-                    const updates = {
-                        board: initialBoard,
-                        status: 'playing',
-                        currentTurn: firstPlayerId,
-                        winner: null,
-                        winningCombo: null
-                    };
-                    
-                    return gameRef.update(updates);
-                })
-                .catch(error => {
-                    console.error('Error resetting game:', error);
-                });
-        }
-
-        // Setup game listeners
-        function setupGameListeners() {
-            if (!gameRef) return;
-            
-            gameRef.on('value', snapshot => {
-                const gameData = snapshot.val();
-                
-                if (!gameData) return;
-                
-                // Update the board
-                updateBoard(gameData.board);
-                
-                // Update game status
-                updateGameStatus(gameData);
-                
-                // Show/hide reset button
-                resetGameBtn.style.display = gameData.status === 'ended' ? 'block' : 'none';
-                
-                // Highlight winning cells
-                if (gameData.winningCombo) {
-                    highlightWinningCells(gameData.winningCombo);
-                }
+            cells.forEach(cell => {
+                cell.textContent = '';
+                cell.classList.remove('X', 'O', 'win');
             });
-        }
-
-        // Update the board on the screen
-        function updateBoard(boardData) {
-            cells.forEach((cell, index) => {
-                cell.textContent = boardData[index];
-                cell.classList.remove('win-combo');
-            });
-        }
-
-        // Update game status text
-        function updateGameStatus(gameData) {
-            // Update players info
-            if (gameData.players) {
-                const playerCount = Object.keys(gameData.players).length;
-                if (playerCount < 2) {
-                    playerInfo.textContent = `You are Player ${playerSymbol} - Waiting for opponent`;
-                } else {
-                    playerInfo.textContent = `You are Player ${playerSymbol}`;
-                }
-            }
             
-            // Update game status
-            if (gameData.status === 'waiting') {
-                gameStatus.textContent = 'Waiting for opponent to join...';
-            } else if (gameData.status === 'playing') {
-                if (gameData.currentTurn === playerId) {
-                    gameStatus.textContent = 'Your turn';
-                } else {
-                    gameStatus.textContent = "Opponent's turn";
-                }
-            } else if (gameData.status === 'ended') {
-                if (gameData.winner === 'draw') {
-                    gameStatus.textContent = 'Game ended in a draw';
-                } else if (gameData.winner === playerId) {
-                    gameStatus.textContent = 'You won!';
-                } else {
-                    gameStatus.textContent = 'You lost!';
-                }
+            updatePlayerTurn();
+        }
+
+        // Update score display
+        function updateScoreDisplay() {
+            scoreX.textContent = scores.X;
+            scoreO.textContent = scores.O;
+            draws.textContent = scores.draws;
+        }
+
+        // Save scores to local storage
+        function saveScores() {
+            localStorage.setItem('ticTacToeScores', JSON.stringify(scores));
+        }
+
+        // Load scores from local storage
+        function loadScores() {
+            const savedScores = localStorage.getItem('ticTacToeScores');
+            if (savedScores) {
+                scores = JSON.parse(savedScores);
+                updateScoreDisplay();
             }
         }
 
-        // Highlight winning cells
-        function highlightWinningCells(winningCombo) {
-            winningCombo.forEach(index => {
-                cells[index].classList.add('win-combo');
-            });
-        }
+        // Initialize the game
+        initGame();
     </script>
 </body>
 </html>
